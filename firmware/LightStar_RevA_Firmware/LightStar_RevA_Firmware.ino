@@ -4,9 +4,9 @@
  * 
  * Functionality:
  * Flashes briefly when turned on
- * Enters QuietMode for 40s unless there is an Infrared Signal
+ * Enters QuietMode for 30s unless there is an Infrared Signal
  * If there is an Infrared Signal, it Flashes again, and resets QuietMode
- * After 40s, it enters TwinkleMode, where it twinkles as an ornament
+ * After 30s, it enters TwinkleMode, where it twinkles as an ornament
  * Because it is very low power, during QuietMode, it can run off the 10uF capacitor,
  *  so turning the off switch during QuietMode may not reset the device
  * 
@@ -35,7 +35,8 @@
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
-
+// add this to the top of your sketch
+#define NOP __asm__ __volatile__ ("nop\n\t")
 
 //#include "IRLibAll.h"
 
@@ -117,20 +118,29 @@ uint32_t _animTimer = 0;
 uint32_t _animDelay = 1000;
 uint32_t _currMillis = 0;
 
+typedef void (*loopModeType)();
+loopModeType _currMode;
 
 void flash(uint8_t val, uint32_t dur_ms){
   uint32_t dur_us = dur_ms*1000;
-  for(uint32_t t=0;t<dur_us;t+=60){
-    for(uint8_t i=0;i<=5;i++){
-      //get bit value from val byte
-      light((i+1)*bitRead(val,i));
-      //delay(1);
-//      uint8_t multiplier = (val >> i) & 1;
-//      light(multiplier*(i+1));
-//      delayMicroseconds(1);
-      delayMicroseconds(7);//derated from 10
-      
-    }
+  //for(uint32_t t=0;t<dur_us;t+=60){
+  for(uint32_t t=0;t<dur_us;t+=400){
+    light((1)*bitRead(val,0));
+    light((2)*bitRead(val,1));
+    light((3)*bitRead(val,2));
+    light((4)*bitRead(val,3));
+    light((5)*bitRead(val,4));
+    light((6)*bitRead(val,5));
+//    for(uint8_t i=0;i<=5;i++){
+//      //get bit value from val byte
+//      light((i+1)*bitRead(val,i));
+//      //delay(1);
+////      uint8_t multiplier = (val >> i) & 1;
+////      light(multiplier*(i+1));
+//     // delayMicroseconds(1); //may not really matter
+////      delayMicroseconds(7);//derated from 10;
+//      
+//    }
   }
   light(0);
 }
@@ -212,18 +222,29 @@ void light(uint8_t val){
 }
 
 
+#define COUNT_DOWN_WDT_CYCLES_TO_FLASH_OFF 3
+volatile uint16_t _wdtCyclesToFlashOff = 0;
+
 // This variable is made volatile because it is changed inside
-// an interrupt function
-#define COUNT_DOWN_SLEEP_CYCLES_TWINKLE 320
+// an interrupt function 468 x 64ms ~= 30s
+#define COUNT_DOWN_SLEEP_CYCLES_TWINKLE 468
 volatile uint16_t _wdtCyclesToNextTwinkle=0;
 
-#define COUNT_DOWN_SLEEP_CYCLES_INFRARED 16
-volatile uint8_t _wdtCyclesToInfrared=COUNT_DOWN_SLEEP_CYCLES_INFRARED;
+#define COUNT_DOWN_WDT_CYCLES_INFRARED 20
+volatile uint8_t _wdtCyclesToInfrared=COUNT_DOWN_WDT_CYCLES_INFRARED;
 
 // Watchdog Interrupt Service. This is executed when watchdog timed out.
 ISR(WDT_vect) {
   if(_wdtCyclesToNextTwinkle>0){
     _wdtCyclesToNextTwinkle-=1; //countdown by 1 sleep cycle
+  }
+  if(_currMode == LightMode){
+    if(_wdtCyclesToFlashOff>0){
+      _wdtCyclesToFlashOff--;
+    }else{
+      _currMode = QuietMode; //switch to quietMode
+    }
+    
   }
 }
 
@@ -299,32 +320,58 @@ void setup_watchdog(int ii) {
 
 
 
-typedef void (*loopModeType)();
-loopModeType _currMode;
+
 
 
 
 void TwinkleMode(){
   if(_wdtCyclesToNextTwinkle==0){
-    flash(random(64),10); //flash a random combination of LEDs for 10ms
-    _wdtCyclesToNextTwinkle=random(3,24); //should be random from 3 to 24
+    flash(random(64),10); //flash a random combination of LEDs for ~10ms
+    _wdtCyclesToNextTwinkle=random(3,30); //should be random from 3 to 16 @64ms intervals
   }
 }
 
 void QuietMode(){
-  //after 40 seconds (or 240 sleep cycles), switch to TwinkleMode
-  if(_wdtCyclesToNextTwinkle%16==0){
-    _wdtCyclesToInfrared=COUNT_DOWN_SLEEP_CYCLES_INFRARED; //reset infrared countdown
-  }
+  //after 30 seconds (or 468 wdt sleep cycles at 64ms), switch to TwinkleMode
+  //if(_wdtCyclesToNextTwinkle%16==0){
+    _wdtCyclesToInfrared=COUNT_DOWN_WDT_CYCLES_INFRARED; //reset infrared countdown
+  //}
   if(_wdtCyclesToNextTwinkle==0){
     _currMode = TwinkleMode;
-    _wdtCyclesToInfrared=COUNT_DOWN_SLEEP_CYCLES_INFRARED; //reset infrared countdown
+    //_wdtCyclesToInfrared=COUNT_DOWN_WDT_CYCLES_INFRARED; //reset infrared countdown
   }
 }
 
 void FlashMode(){
+  _currMode = QuietMode; //switch to quietMode
   flash(63,30); //flash all LEDs for 30ms
   _wdtCyclesToNextTwinkle=COUNT_DOWN_SLEEP_CYCLES_TWINKLE; //reset countdown to start twinkle
+}
+
+void LightMode(){
+  //_currMode = QuietMode; //switch to quietMode
+  _wdtCyclesToNextTwinkle=COUNT_DOWN_SLEEP_CYCLES_TWINKLE; //reset countdown to start twinkle
+
+  uint16_t c = 360;
+  uint8_t a = 100;
+  uint8_t r = 0;
+  while(_wdtCyclesToFlashOff>0){
+    if(c>0){
+      light(1+c%6);
+      //light(1);light(2);light(3);light(4);light(5);light(6);
+      
+      
+      c--;
+    }else{
+      if(a==0){
+        r = random(7);
+        a=100;
+      }
+      light(r);
+      a--;
+    }
+  }
+  light(0);
   _currMode = QuietMode; //switch to quietMode
 }
 
@@ -355,9 +402,10 @@ void IrMode(){
 ISR(INT0_vect) {
   if(_wdtCyclesToInfrared>0){
     _wdtCyclesToInfrared--;
+    _wdtCyclesToFlashOff = COUNT_DOWN_WDT_CYCLES_TO_FLASH_OFF; //reset wdt counter for flash on cycles
   }else{
-    _wdtCyclesToInfrared=COUNT_DOWN_SLEEP_CYCLES_INFRARED; //reset infrared countdown
-    _currMode = FlashMode; //flash mode
+    _wdtCyclesToInfrared=COUNT_DOWN_WDT_CYCLES_INFRARED; //reset infrared countdown
+    _currMode = LightMode;//FlashMode; //flash mode
   }
 }
 
@@ -373,7 +421,7 @@ void setup() {
   
   _currMode = FlashMode; //flash once and then enter quiet mode for 40 seconds
   
-  setup_watchdog(3);//Setup watchdog to go off after 125ms
+  setup_watchdog(2);//Setup watchdog to go off after 64ms
 }
 
 
@@ -382,5 +430,5 @@ void loop() {
   // Wait until the watchdog have triggered a wake up.
   _currMode();
   
-  system_sleep();//Go to sleep! Wake up 125ms later and check watchdog timer counter
+  system_sleep();//Go to sleep! Wake up 64ms later and check watchdog timer counter
 }
