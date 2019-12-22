@@ -2,6 +2,8 @@
  * LightStar Firmware
  * Written by Matthew Swarts, 2019
  * 
+ * Designed for use with Light of the World https://www.youtube.com/watch?v=eI302Av7vSI
+ * 
  * Functionality:
  * Flashes briefly when turned on
  * Enters QuietMode for 30s unless there is an Infrared Signal
@@ -352,7 +354,7 @@ void LightMode(){
   //_currMode = QuietMode; //switch to quietMode
   _wdtCyclesToNextTwinkle=COUNT_DOWN_SLEEP_CYCLES_TWINKLE; //reset countdown to start twinkle
 
-  uint16_t c = 360;
+  uint16_t c = 4000; //timed for about 2.5 seconds
   uint8_t a = 100;
   uint8_t r = 0;
   while(_wdtCyclesToFlashOff>0){
